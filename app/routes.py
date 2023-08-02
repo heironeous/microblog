@@ -83,11 +83,14 @@ def user(username):
 @login_required
 def edit_profile(username):
     user = User.query.filter_by(username=username).first_or_404()
-    form = EditProfileForm(obj=user)
+    form = EditProfileForm(user=user)
     if form.validate_on_submit():
         user.about_me = form.about_me.data
-        user.usernmae = form.username.data
+        user.username = form.username.data
         db.session.commit()
         flash(message=f'{user.username} | {user.email} - Profile now Updated!')
         return redirect(url_for(endpoint='user', username=user.username))
+    elif request.method == 'GET':
+        form.username.data = user.username
+        form.about_me.data = user.about_me
     return render_template(template_name_or_list='edit_profile.html', form=form)

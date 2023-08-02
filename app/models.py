@@ -40,4 +40,23 @@ class Post(db.Model):
 
     def __repr__(self):
         return '<Post {} createt at {}>'.format(self.body, self.timestamp)
+
+    def follow(self, user):
+        if not self.is_following(user) and self != user:
+            return Follow(follower_id=self.id, followed_id=user.id)
+
+    def unfollow(self, user):
+        if self.is_following(user) and self != user:
+            return Follow(follower_id=self.id, followed_id=user.id)
+
+    def is_following(self, user):
+        return self.followed.filter(
+            followers.c.followed_id == user.id).count() > 0
     
+class Follow(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    follower_id = db.Column(db.Integer, db.ForeignKey('user.id')) # follower_id is the user who is doing the following
+    followed_id = db.Column(db.Integer, db.ForeignKey('user.id')) # followed_id is the user who is being followed
+    
+    def __repr__(self):
+        return '<Follow {} is following {}>'.format(self.follower_id, self.followed_id)
