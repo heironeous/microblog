@@ -2,7 +2,7 @@ from datetime import datetime
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from app import app, db
-from app.forms import EditProfileForm, LoginForm, RegistrationForm
+from app.forms import EditProfileForm, EmptyForm, LoginForm, RegistrationForm
 from app.models import User
 from werkzeug.urls import url_parse
 
@@ -10,7 +10,7 @@ from werkzeug.urls import url_parse
 @app.route('/')
 @app.route('/index')
 @login_required
-def index():
+def index() -> str:
     user = {'username': 'Miguel'}
     posts = [
         {
@@ -25,14 +25,14 @@ def index():
     return render_template('index.html', title='Home', posts=posts)
 
 @app.before_request
-def before_request():
+def before_request() -> None:
     if current_user.is_authenticated:
         current_user.last_seen = datetime.utcnow()
         db.session.commit()
 
 
 @app.route('/register', methods=['GET', 'POST'])
-def register():
+def register() -> str:
     if current_user.is_authenticated:
         return redirect(url_for('index'))
     form = RegistrationForm()
@@ -47,7 +47,7 @@ def register():
 
 
 @app.route('/login', methods=['GET', 'POST'])
-def login():
+def login() -> str:
     if current_user.is_authenticated:
         return redirect(url_for('index'))
     form = LoginForm()
@@ -64,26 +64,33 @@ def login():
     return render_template('login.html', title='Sign In', form=form)
 
 @app.route('/logout')
-def logout():
+def logout() -> str:
     logout_user()
     return redirect(url_for('index'))
 
 @app.route('/user/<username>')
 @login_required
-def user(username):
+def user(username: str) -> str:
     user = User.query.filter_by(username=username).first_or_404()
     #posts = user.posts.all()
     posts = [   
         {'author': user, 'body': 'Amazing day in travel location - post #1'},
         {'author': user, 'body': 'See how I travel - post #2'}
     ]
-    return render_template(template_name_or_list='user.html', user=user, posts=posts)
+    follow_unfollow_form = EmptyForm()
+    return render_template(template_name_or_list='user.html', user=user, posts=posts, form=follow_unfollow_form)
 
 @app.route('/user/<username>/edit_profile', methods=['GET', 'POST'])
 @login_required
-def edit_profile(username):
+def edit_profile(username: str) -> str:
     user = User.query.filter_by(username=username).first_or_404()
+    
+    if (user != current_user):
+        flash(message=f'You are not authorized to edit this profile!')
+        return redirect(url_for(endpoint='user', username=user.username))
+    
     form = EditProfileForm(user=user)
+    
     if form.validate_on_submit():
         user.about_me = form.about_me.data
         user.username = form.username.data
@@ -94,3 +101,43 @@ def edit_profile(username):
         form.username.data = user.username
         form.about_me.data = user.about_me
     return render_template(template_name_or_list='edit_profile.html', form=form)
+
+@app.route('/user/<username>/follow', methods=['POST'])
+@login_required
+def follow_user(username: str):
+    form = EmptyForm()
+    if form.validate_on_submit():
+        followeduser = User.query.filter_by(username=username).first_or_404()
+        if followeduser is None:
+            flash('User {} not found, nothing to follow.'.format(username))
+            return redirect(url_for('index'))
+        if followeduser == current_user:
+            flash('User {} is you, dummy :-)'.format(username))
+            return redirect(url_for('user', username=username))
+        current_user.follow(followeduser)
+        db.session.commit()
+        flash('You are following {}!'.format(username))
+        return redirect(url_for('user', username=username))
+    else:
+        return redirect(url_for('index'))
+    
+@app.route('/user/<username>/unfollow', methods=['POST'])
+@login_required
+def unfollow_user(username: str) -> str:
+    form = EmptyForm()
+    if form.validate_on_submit():
+        unfolloweduser = User.query.filter_by(username=username).first_or_404()
+        if unfolloweduser is None:
+            flash('User {} not found, nothing to unfollow.'.format(username))
+            return redirect(url_for('index'))
+        if unfolloweduser == current_user:
+            flash('User {} is you, dummy :-)'.format(username))
+            return redirect(url_for('user', username=username))
+        current_user.unfollow(unfolloweduser)
+        db.session.commit()
+        flash('You have unfollowed user: {} :-('.format(username))
+        return redirect(url_for('user', username=username))
+    else:
+        return redirect(url_for('index'))
+
+        
