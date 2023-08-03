@@ -2,8 +2,8 @@ from datetime import datetime
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from app import app, db
-from app.forms import EditProfileForm, EmptyForm, LoginForm, RegistrationForm
-from app.models import User
+from app.forms import EditProfileForm, EmptyForm, LoginForm, PostForm, RegistrationForm
+from app.models import Post, User
 from werkzeug.urls import url_parse
 
 
@@ -11,18 +11,12 @@ from werkzeug.urls import url_parse
 @app.route('/index')
 @login_required
 def index() -> str:
-    user = {'username': 'Miguel'}
-    posts = [
-        {
-            'author': {'username': 'John'},
-            'body': 'Beautiful day in Portland!'
-        },
-        {
-            'author': {'username': 'Susan'},
-            'body': 'The Avengers movie was so cool!'
-        }
-    ]
-    return render_template('index.html', title='Home', posts=posts)
+    
+    posts = Post.query.filter_by(user_id=current_user.id)
+    form = PostForm()
+    if form.validate_on_submit():
+        return redirect(location=url_for("new_post"))
+    return render_template('index.html', title='Home', posts=posts, form=form)
 
 @app.before_request
 def before_request() -> None:
@@ -72,11 +66,11 @@ def logout() -> str:
 @login_required
 def user(username: str) -> str:
     user = User.query.filter_by(username=username).first_or_404()
-    #posts = user.posts.all()
-    posts = [   
-        {'author': user, 'body': 'Amazing day in travel location - post #1'},
-        {'author': user, 'body': 'See how I travel - post #2'}
-    ]
+    if user is None:
+        flash(message=f"User {username} does not exist!")
+        redirect(location=url_for(endpoint='index'))
+        
+    posts = Post.query.filter_by(user_id=user.id).all()
     follow_unfollow_form = EmptyForm()
     return render_template(template_name_or_list='user.html', user=user, posts=posts, form=follow_unfollow_form)
 
@@ -104,7 +98,7 @@ def edit_profile(username: str) -> str:
 
 @app.route('/user/<username>/follow', methods=['POST'])
 @login_required
-def follow_user(username: str):
+def follow_user(username: str) -> str:
     form = EmptyForm()
     if form.validate_on_submit():
         followeduser = User.query.filter_by(username=username).first_or_404()
@@ -140,4 +134,35 @@ def unfollow_user(username: str) -> str:
     else:
         return redirect(url_for('index'))
 
+
+@app.route('/post/<int:id>', methods=['GET'])
+@login_required
+def view_post(id: int) -> str:
+    post = Post.query.filter_by(id=id).first_or_404()
+    if post is None:
+        flash(message=f'Post with {id} does not exist!')
+        return redirect(location=url_for(endpoint='index'))
+    user = User.query.filter_by(id=post.user_id).first_or_404()
+    if user is None:
+        flash(message=f'Post with id:{id} does not seem to have a valid user!!!')
+        return redirect(location=url_for(endpoint='index'))
+    return render_template(template_name_or_list='post_view.html', post=post, user=user)
+        
+@app.route('/post/new_post', methods=['POST'])
+@login_required
+def new_post() -> str:
+    postbody = request.form['post']
+    if postbody == "":
+        return redirect(location=url_for(endpoint='index'))
+    else:
+        post = Post(body=postbody, user_id=current_user.id)
+        db.session.add(post)
+        db.session.commit()
+        return redirect(location=url_for(endpoint='view_post', id=post.id))
+    
+@app.route('/explore', methods=['GET'])
+@login_required
+def explore() -> str:
+    posts = Post.query.order_by(Post.timestamp.desc()).all()
+    return render_template(template_name_or_list="explore.html", posts=posts)
         
