@@ -2,21 +2,26 @@ from datetime import datetime
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from app import app, db
-from app.forms import EditProfileForm, EmptyForm, LoginForm, PostForm, RegistrationForm
+from app.forms import EditProfileForm, EmptyForm, LoginForm, PostForm, RegistrationForm, ForgotPasswordForm, ResetPasswordForm
 from app.models import Post, User
 from werkzeug.urls import url_parse
 
+from app.email import send_password_reset_email
 
 @app.route('/')
 @app.route('/index')
 @login_required
 def index() -> str:
     
-    posts = Post.query.filter_by(user_id=current_user.id)
+    page = request.args.get('page', 1, type=int)
+    posts = Post.query.filter_by(user_id=current_user.id).paginate(page=page, per_page=app.config['POSTS_PER_PAGE'], error_out=False)
+    next_url = url_for(endpoint='index', page=posts.next_num) if posts.has_next else None
+    prev_url = url_for(endpoint='index', page=posts.prev_num) if posts.has_prev else None
+    
     form = PostForm()
     if form.validate_on_submit():
         return redirect(location=url_for("new_post"))
-    return render_template('index.html', title='Home', posts=posts, form=form)
+    return render_template('index.html', title='Home', posts=posts.items, form=form, next_url=next_url, prev_url=prev_url)
 
 @app.before_request
 def before_request() -> None:
@@ -163,6 +168,36 @@ def new_post() -> str:
 @app.route('/explore', methods=['GET'])
 @login_required
 def explore() -> str:
-    posts = Post.query.order_by(Post.timestamp.desc()).all()
-    return render_template(template_name_or_list="explore.html", posts=posts)
-        
+    page = request.args.get('page', 1, type=int)
+    posts = Post.query.order_by(Post.timestamp.desc()).paginate(page=page, per_page=app.config['POSTS_PER_PAGE'], error_out=False)
+    next_url = url_for(endpoint='explore', page=posts.next_num) if posts.has_next else None
+    prev_url = url_for(endpoint='explore', page=posts.prev_num) if posts.has_prev else None
+    return render_template(template_name_or_list="explore.html", posts=posts.items, next_url=next_url, prev_url=prev_url)
+
+@app.route('/reset_password_request', methods=['GET', 'POST'])
+def reset_password_request():
+    if current_user.is_authenticated:
+        return redirect(url_for(endpoint='index'))
+    form = ForgotPasswordForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(email=form.email.data).first()
+        if (user is not None):
+            send_password_reset_email(user)
+            flash(message=f'An email has been sent to {user.email} with instructions to reset your password.')
+            return redirect(url_for(endpoint='login'))
+    return render_template('reset_password_request.html', title='Reset Password', form=form)
+
+@app.route('/reset_password/<token>', methods=['GET', 'POST'])
+def reset_password(token: str):
+    if current_user.is_authenticated:
+        return redirect(url_for(endpoint='index'))
+    user = User.verify_reset_password_token(token)
+    if not user:
+        return redirect(url_for(endpoint='index'))
+    form = ResetPasswordForm()
+    if form.validate_on_submit():
+        user.set_password(password=form.password.data)
+        db.session.commit()
+        flash(message=f'Your password has been reset.')
+        return redirect(url_for(endpoint='login'))
+    return render_template('reset_password.html', form=form)

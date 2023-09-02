@@ -2,9 +2,11 @@ from __future__ import annotations
 from datetime import datetime
 from hashlib import md5
 from flask_login import UserMixin
-from app import db, login
+from app import db, login, app
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy.query import Query
+from time import time
+from jwt import encode, decode
 
 @login.user_loader
 def load_user(id):
@@ -73,6 +75,19 @@ class User(UserMixin, db.Model):
         myposts = self.my_posts()
         followedposts = self.followed_posts()
         return followedposts.union(myposts).order_by(Post.timestamp.desc())
+    
+    def get_reset_password_token(self, expires_in: int = 600) -> str:
+        return encode(
+            payload={'reset_password': self.id, 'exp': time() + expires_in}, 
+            key=app.config['SECRET_KEY'], 
+            algorithm='HS256')
+    
+    def verify_reset_password_token(token: str) -> User:
+        try:
+            id = decode(jwt=token, key=app.config['SECRET_KEY'], algorithms=['HS256'])['reset_password']
+        except:
+            return
+        return User.query.get(id)
     
 class Post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
